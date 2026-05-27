@@ -1,126 +1,96 @@
-import React, { useEffect } from "react";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { useAuth } from "./hooks/useAuth";
-import { AuthProvider } from "./context/AuthContext";
-import { GameProvider } from "./context/GameContext";
-import { SocketProvider } from "./context/SocketContext";
-import { socketService } from "./services/socketService";
-import { AuthPage } from "./components/Auth/AuthPage";
-import { DashboardPage } from "./components/Lobby/DashboardPage";
-import { LobbyPage } from "./components/Lobby/LobbyPage";
-import { GameplayPage } from "./components/Gameplay/GameplayPage";
-import { SuccessPage } from "./components/Success/SuccessPage";
-import "./App.css";
-
-// Protected Route Component
-const ProtectedRoute = ({ children }) => {
-  const { isAuthenticated, isLoading } = useAuth();
-
-  if (isLoading) {
-    return <div className="loading-screen">Loading...</div>;
-  }
-
-  if (!isAuthenticated) {
-    return <Navigate to="/" replace />;
-  }
-
-  return children;
-};
-
-function AppContent() {
-  const { restoreToken, isAuthenticated } = useAuth();
-
-  useEffect(() => {
-    restoreToken();
-  }, [restoreToken]);
-
-  // Initialize socket when authenticated and attach token
-  useEffect(() => {
-    const init = async () => {
-      if (isAuthenticated) {
-        socketService.connect();
-        try {
-          const token = localStorage.getItem("authToken");
-          if (token) {
-            const m = await import("./services/socketAuth");
-            m.attachAuthToken(token);
-          }
-        } catch (err) {
-          // ignore
-        }
-      } else {
-        // if not authenticated, ensure socket disconnected
-        try {
-          socketService.disconnect();
-        } catch (e) {}
-      }
-    };
-
-    init();
-
-    return () => {
-      // no-op cleanup here
-    };
-  }, [isAuthenticated]);
-
-  const socket = socketService.getSocket();
-
-  return (
-    <SocketProvider socket={socket}>
-      <GameProvider>
-        <Routes>
-          {/* Auth */}
-          <Route path="/" element={<AuthPage />} />
-
-          {/* Protected Routes */}
-          <Route
-            path="/dashboard"
-            element={
-              <ProtectedRoute>
-                <DashboardPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/lobby/:roomId"
-            element={
-              <ProtectedRoute>
-                <LobbyPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/game/:roomId"
-            element={
-              <ProtectedRoute>
-                <GameplayPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/success/:roomId"
-            element={
-              <ProtectedRoute>
-                <SuccessPage />
-              </ProtectedRoute>
-            }
-          />
-
-          {/* Fallback */}
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </GameProvider>
-    </SocketProvider>
-  );
-}
+import React, { useState } from 'react';
+import { useAuth } from './context/AuthContext';
+import Login from './components/Login';
+import Register from './components/Register';
+import RoomSelector from './components/RoomSelector';
+import Workspace from './components/Workspace';
+import ErrorBoundary from './components/ErrorBoundary';
+import { Loader2, Terminal, ArrowLeft } from 'lucide-react';
 
 function App() {
+  const { user, loading } = useAuth();
+  const [authView, setAuthView] = useState('login'); // 'login' or 'register'
+
+  // Helper to extract room ID from URL parameters on reload
+  const getRoomFromUrl = () => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('room') || null;
+  };
+
+  const [roomId, setRoomId] = useState(getRoomFromUrl());
+
+  // Update browser address bar without reloading to persist room ID
+  const updateRoomUrl = (id) => {
+    const newUrl = id 
+      ? `${window.location.pathname}?room=${id}` 
+      : window.location.pathname;
+    window.history.pushState({ path: newUrl }, '', newUrl);
+  };
+
+  const handleJoinRoom = (id) => {
+    setRoomId(id);
+    updateRoomUrl(id);
+  };
+
+  const handleLeaveRoom = () => {
+    setRoomId(null);
+    updateRoomUrl(null);
+  };
+
+  // 1. Show dynamic, premium loading indicator while checking cookies
+  if (loading) {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '100vh',
+          background: 'var(--bg-primary)',
+          color: 'var(--text-primary)',
+          gap: '16px',
+        }}
+      >
+        <Loader2
+          size={48}
+          className="accent-text"
+          style={{ animation: 'spin 1.5s infinite linear', color: 'var(--accent-primary)' }}
+        />
+        <h3 style={{ fontFamily: "'Outfit', sans-serif", fontSize: '1.2rem', fontWeight: 600 }}>
+          Initializing GitTogether Session...
+        </h3>
+      </div>
+    );
+  }
+
+  // 2. Unauthenticated flows (Protected Routes)
+  if (!user) {
+    return authView === 'login' ? (
+      <Login onSwitchAuth={setAuthView} />
+    ) : (
+      <Register onSwitchAuth={setAuthView} />
+    );
+  }
+
+  // 3. Authenticated - Workspace session joined
+  if (roomId) {
+    return (
+      <ErrorBoundary>
+        <Workspace
+          roomId={roomId}
+          onLeaveRoom={handleLeaveRoom}
+        />
+      </ErrorBoundary>
+    );
+  }
+
+  // 4. Authenticated - Room selector dashboard
   return (
-    <BrowserRouter>
-      <AuthProvider>
-        <AppContent />
-      </AuthProvider>
-    </BrowserRouter>
+    <RoomSelector
+      onCreateRoom={handleJoinRoom}
+      onJoinRoom={handleJoinRoom}
+    />
   );
 }
 

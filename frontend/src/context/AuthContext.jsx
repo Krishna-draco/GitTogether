@@ -1,86 +1,136 @@
-import React, { createContext, useReducer, useCallback } from "react";
+import React, { createContext, useState, useEffect, useContext } from 'react';
 
-export const AuthContext = createContext(null);
+const AuthContext = createContext();
 
-const initialState = {
-  user: localStorage.getItem("user")
-    ? JSON.parse(localStorage.getItem("user"))
-    : null,
-  isAuthenticated: !!localStorage.getItem("authToken"),
-  isLoading: false,
-  error: null,
-  token: localStorage.getItem("authToken") || null,
-};
-
-const authReducer = (state, action) => {
-  switch (action.type) {
-    case "LOGIN_START":
-      return { ...state, isLoading: true, error: null };
-    case "LOGIN_SUCCESS":
-      return {
-        ...state,
-        user: action.payload,
-        isAuthenticated: true,
-        isLoading: false,
-        token: action.token,
-        error: null,
-      };
-    case "LOGIN_ERROR":
-      return {
-        ...state,
-        isLoading: false,
-        error: action.error,
-        isAuthenticated: false,
-      };
-    case "LOGOUT":
-      localStorage.removeItem("authToken");
-      return { ...initialState, token: null };
-    case "RESTORE_TOKEN":
-      return {
-        ...state,
-        token: action.payload,
-        isAuthenticated: !!action.payload,
-      };
-    default:
-      return state;
-  }
-};
+const API_BASE_URL = 'http://localhost:5000/api/auth';
 
 export const AuthProvider = ({ children }) => {
-  const [state, dispatch] = useReducer(authReducer, initialState);
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  const login = useCallback((user, token) => {
-    dispatch({ type: "LOGIN_START" });
+  // Fetch current user if cookie token exists
+  const checkAuth = async () => {
     try {
-      localStorage.setItem("authToken", token);
-      localStorage.setItem("user", JSON.stringify(user));
-      dispatch({ type: "LOGIN_SUCCESS", payload: user, token });
-    } catch (error) {
-      dispatch({ type: "LOGIN_ERROR", error: error.message });
+      setLoading(true);
+      const res = await fetch(`${API_BASE_URL}/me`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include', // vital for sending HTTP-only cookies
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setUser(data.user);
+      } else {
+        setUser(null);
+      }
+    } catch (err) {
+      console.error('Error checking authentication status:', err);
+      setUser(null);
+    } finally {
+      setLoading(false);
     }
-  }, []);
-
-  const logout = useCallback(() => {
-    localStorage.removeItem("authToken");
-    localStorage.removeItem("user");
-    dispatch({ type: "LOGOUT" });
-  }, []);
-
-  const restoreToken = useCallback(() => {
-    const token = localStorage.getItem("authToken");
-    const userStr = localStorage.getItem("user");
-    if (token && userStr) {
-      const user = JSON.parse(userStr);
-      dispatch({ type: "LOGIN_SUCCESS", payload: user, token });
-    }
-  }, []);
-
-  const value = {
-    ...state,
-    login,
-    logout,
-    restoreToken,
   };
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  useEffect(() => {
+    checkAuth();
+  }, []);
+
+  // Register User
+  const register = async (username, email, password) => {
+    try {
+      setError(null);
+      const res = await fetch(`${API_BASE_URL}/register`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ username, email, password }),
+        credentials: 'include',
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || 'Registration failed');
+      }
+
+      setUser(data.user);
+      return { success: true };
+    } catch (err) {
+      setError(err.message);
+      return { success: false, error: err.message };
+    }
+  };
+
+  // Login User
+  const login = async (email, password) => {
+    try {
+      setError(null);
+      const res = await fetch(`${API_BASE_URL}/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
+        credentials: 'include',
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || 'Login failed');
+      }
+
+      setUser(data.user);
+      return { success: true };
+    } catch (err) {
+      setError(err.message);
+      return { success: false, error: err.message };
+    }
+  };
+
+  // Logout User
+  const logout = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/logout`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+      });
+
+      if (res.ok) {
+        setUser(null);
+      }
+    } catch (err) {
+      console.error('Logout failed:', err);
+    }
+  };
+
+  return (
+    <AuthContext.Provider
+      value={{
+        user,
+        loading,
+        error,
+        register,
+        login,
+        logout,
+        setError,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
 };
