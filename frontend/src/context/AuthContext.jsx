@@ -1,8 +1,10 @@
-import React, { createContext, useState, useEffect, useContext } from 'react';
+import React, { createContext, useState, useEffect, useContext } from "react";
 
 const AuthContext = createContext();
 
-const API_BASE_URL = 'http://localhost:5000/api/auth';
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api/auth";
+const SOCKET_TOKEN_KEY = "gittogether_socket_token";
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -14,11 +16,11 @@ export const AuthProvider = ({ children }) => {
     try {
       setLoading(true);
       const res = await fetch(`${API_BASE_URL}/me`, {
-        method: 'GET',
+        method: "GET",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
-        credentials: 'include', // vital for sending HTTP-only cookies
+        credentials: "include", // vital for sending HTTP-only cookies
       });
 
       const data = await res.json();
@@ -28,7 +30,7 @@ export const AuthProvider = ({ children }) => {
         setUser(null);
       }
     } catch (err) {
-      console.error('Error checking authentication status:', err);
+      console.error("Error checking authentication status:", err);
       setUser(null);
     } finally {
       setLoading(false);
@@ -44,19 +46,22 @@ export const AuthProvider = ({ children }) => {
     try {
       setError(null);
       const res = await fetch(`${API_BASE_URL}/register`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({ username, email, password }),
-        credentials: 'include',
+        credentials: "include",
       });
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.message || 'Registration failed');
+        throw new Error(data.message || "Registration failed");
       }
 
+      if (data.token) {
+        localStorage.setItem(SOCKET_TOKEN_KEY, data.token);
+      }
       setUser(data.user);
       return { success: true };
     } catch (err) {
@@ -70,19 +75,22 @@ export const AuthProvider = ({ children }) => {
     try {
       setError(null);
       const res = await fetch(`${API_BASE_URL}/login`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({ email, password }),
-        credentials: 'include',
+        credentials: "include",
       });
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.message || 'Login failed');
+        throw new Error(data.message || "Login failed");
       }
 
+      if (data.token) {
+        localStorage.setItem(SOCKET_TOKEN_KEY, data.token);
+      }
       setUser(data.user);
       return { success: true };
     } catch (err) {
@@ -95,18 +103,19 @@ export const AuthProvider = ({ children }) => {
   const logout = async () => {
     try {
       const res = await fetch(`${API_BASE_URL}/logout`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
-        credentials: 'include',
+        credentials: "include",
       });
 
       if (res.ok) {
+        localStorage.removeItem(SOCKET_TOKEN_KEY);
         setUser(null);
       }
     } catch (err) {
-      console.error('Logout failed:', err);
+      console.error("Logout failed:", err);
     }
   };
 
@@ -130,7 +139,7 @@ export const AuthProvider = ({ children }) => {
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
+    throw new Error("useAuth must be used within an AuthProvider");
   }
   return context;
 };
